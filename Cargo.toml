@@ -1,0 +1,15 @@
+[package]
+name = "beacon-dao-factory"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "daowiz"
+path = "src/main.rs"
+
+[dependencies]
+itertools = "0.10.3"
+web3 = { version = "0.18.0", default-features = false, features = ["http-rustls-tls"] }
+convertable-errors = "0.1.0"
+serde = "1.0.138"
+serde_json = "1.0.82"
