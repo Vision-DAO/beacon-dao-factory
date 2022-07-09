@@ -13,3 +13,7 @@ web3 = { version = "0.18.0", default-features = false, features = ["http-rustls-
 convertable-errors = "0.1.0"
 serde = "1.0.138"
 serde_json = "1.0.82"
+ipfs-api = "0.15.0"
+ipfs-api-backend-actix = "0.5"
+futures = "0.3.21"
+actix = "0.13.0"

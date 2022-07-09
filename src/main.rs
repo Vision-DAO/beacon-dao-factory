@@ -1,12 +1,17 @@
+#![feature(iterator_try_collect)]
+#![feature(async_closure)]
+
 mod cli;
-mod contract;
+mod net;
 
 #[macro_use]
 extern crate convertable_errors;
 
+use net::contract;
 use std::env;
 
-fn main() {
+#[actix::main]
+async fn main() {
     let mut args = env::args();
 
     // Show usage if no args are provided
@@ -15,10 +20,20 @@ fn main() {
     }
 
     // Will throw an error if not enough args were provided
-    let conf = cli::Context::try_from(args)
-        .unwrap();
+    let conf = cli::Context::try_from(args).unwrap();
 
     match conf.cmd {
-        cli::Command::New{ .. } => contract::deploy(&conf.cmd),
+        cli::Command::New(ctx) => {
+            let addr = contract::deploy(ctx).await.unwrap();
+
+            // No need to print extra output
+            println!("{addr}");
+        }
+        cli::Command::List(_) => unimplemented!(),
     };
+
+    // Stop any IPFS processes running in the background
+    if let Some(mut ipfs_handle) = conf.ipfs_handle {
+        ipfs_handle.kill().expect("failed to stop IPFS process");
+    }
 }
