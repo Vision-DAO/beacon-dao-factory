@@ -6,14 +6,31 @@ use std::{
     error::Error,
     fmt,
     fs::{File, OpenOptions},
+    io::{stderr, Write},
     path::PathBuf,
+    process,
     process::{Child, Command as ProcCommand},
 };
 
 const CLI_NAME: &str = "./daowiz";
 const PRIVATE_KEY_ARG: &str = "DEPLOYMENT_KEY";
 
+/// The assumed IPFS URL, by default an in-process instance.
 const DEFAULT_IPFS_GATEWAY: &str = "http://127.0.0.1:5001/";
+
+/// Instructions for how to use the program.
+const USAGE: &str = " - creates a new Vision Beacon DAO with the specified \
+default modules
+\tDEPLOYMENT_KEY (required) - an environment var specifying the ethereum \
+private key to use for deploying the DAO
+\t--eth-rpc-uri (required) - a flag specifying the http url of an EVM-\
+compatible node that daowiz will deploy the Beacon DAO to
+\t--ipfs-rpc-uri (optional) - a flag specifying the http url of an IPFS node \
+that daowiz will deploy Beacon DAO metadata to. Uses an in-process IPFS node by \
+default
+\t--contracts-dir (required) - a flag specifying the path to a directory \
+containing the built Beacon DAO contracts that will be used for deploying the \
+Beacon DAO";
 
 /// Required args to the command-line application.
 pub struct Context {
@@ -184,5 +201,17 @@ impl TryFrom<Args> for Context {
 
 /// Prints the usage of the program to stderr.
 pub fn usage(args: &mut Args) {
-    panic!("{}", args.next().unwrap_or_else(|| CLI_NAME.to_owned()))
+    // Log the program usage, exit with 1
+    let mut handle = stderr().lock();
+    handle
+        .write_all(
+            format!(
+                "{} a.wasm b.wasm ... {USAGE}\n",
+                args.next().unwrap_or_else(|| CLI_NAME.to_owned())
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+
+    process::exit(0x0100);
 }
