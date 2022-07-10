@@ -1,5 +1,6 @@
 #![feature(iterator_try_collect)]
 #![feature(async_closure)]
+#![feature(let_chains)]
 
 mod cli;
 mod net;
@@ -29,7 +30,10 @@ async fn main() {
             // No need to print extra output
             println!("{addr}");
         }
-        cli::Command::List(_) => unimplemented!(),
+        cli::Command::List(ctx) => {
+            // Print out each deployed contract's address on a separate line
+            println!("{}", contract::list(ctx).await.unwrap().join("\n"));
+        }
     };
 
     // Stop any IPFS processes running in the background

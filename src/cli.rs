@@ -35,7 +35,7 @@ struct ContextBuilder {
 
 /// Command-specific configuration options.
 pub enum Command {
-    New(NewContext),
+    New(Box<NewContext>),
     List(ListContext),
 }
 
@@ -55,9 +55,9 @@ pub struct NewContext {
 
 /// Configuration variables necessary for executing the `list` command.
 pub struct ListContext {
-    private_key: String,
-    eth_uri: String,
-    contracts_dir: String,
+    pub(crate) private_key: String,
+    pub(crate) eth_uri: String,
+    pub(crate) contracts_dir: String,
 }
 
 impl TryFrom<ContextBuilder> for Command {
@@ -67,7 +67,7 @@ impl TryFrom<ContextBuilder> for Command {
     /// field was not specified. Uses defaults for relevant fields.
     fn try_from(v: ContextBuilder) -> Result<Self, Self::Error> {
         match v.cmd {
-            Some(CommandBuilder::New) => Ok(Self::New(NewContext {
+            Some(CommandBuilder::New) => Ok(Self::New(Box::new(NewContext {
                 private_key: v.private_key.ok_or(ParseError::MissingPrivateKey)?,
                 eth_uri: v.eth_uri.ok_or(ParseError::MissingRpcUrlETH)?,
                 contracts_dir: v.contracts_dir.ok_or(ParseError::MissingContractsSrc)?,
@@ -77,11 +77,11 @@ impl TryFrom<ContextBuilder> for Command {
                 // Spawn an IPFS node if the user didn't specify a host
                 ipfs: IpfsClient::build_with_base_uri(
                     v.ipfs_uri
-                        .unwrap_or(DEFAULT_IPFS_GATEWAY.to_owned())
+                        .unwrap_or_else(|| DEFAULT_IPFS_GATEWAY.to_owned())
                         .parse()
                         .map_err(|e| ParseError::MiscError(Box::new(e)))?,
                 ),
-            })),
+            }))),
             Some(CommandBuilder::List) => Ok(Self::List(ListContext {
                 private_key: v.private_key.ok_or(ParseError::MissingPrivateKey)?,
                 eth_uri: v.eth_uri.ok_or(ParseError::MissingRpcUrlETH)?,
@@ -133,15 +133,16 @@ impl TryFrom<Args> for Context {
     type Error = ParseError;
 
     fn try_from(mut v: Args) -> Result<Self, Self::Error> {
-        let mut builder = ContextBuilder::default();
-
-        // new, or ls should be the first arg after the program name, which
-        // is already extracted
-        builder.cmd = v.nth(0).and_then(|cmd| match cmd.as_str() {
-            "new" => Some(CommandBuilder::New),
-            "list" => Some(CommandBuilder::List),
-            _ => None,
-        });
+        let mut builder = ContextBuilder {
+            // new, or ls should be the first arg after the program name, which
+            // is already extracted
+            cmd: v.next().and_then(|cmd| match cmd.as_str() {
+                "new" => Some(CommandBuilder::New),
+                "list" => Some(CommandBuilder::List),
+                _ => None,
+            }),
+            ..Default::default()
+        };
 
         // Parse flags
         for (k, v) in v.into_iter().tuples() {
@@ -183,5 +184,5 @@ impl TryFrom<Args> for Context {
 
 /// Prints the usage of the program to stderr.
 pub fn usage(args: &mut Args) {
-    panic!("{}", args.nth(0).unwrap_or(CLI_NAME.to_owned()))
+    panic!("{}", args.next().unwrap_or_else(|| CLI_NAME.to_owned()))
 }

@@ -49,24 +49,24 @@ pub async fn deploy_metadata(
     let entries: Vec<Cid> = future::try_join_all(modules.into_iter().map(async move |(path, mut f)| {
         // Modules have a WASM and JS payload. Load the WASM
         let mut src = Vec::new();
-        f.read(&mut src)?;
+        f.read_to_end(&mut src)?;
 
         // And load the JavaScript
         let mut loader = Vec::new();
         OpenOptions::new()
             .read(true)
             .open(path.with_extension(".wasm"))?
-            .read(&mut loader)?;
+            .read_to_end(&mut loader)?;
 
         let module = IdeaPayload {
-            loader: String::from_utf8(loader).map_err(|e| Error::IoError(Box::new(e)))?,
+            loader: String::from_utf8(loader).map_err(|e| Error::Io(Box::new(e)))?,
             module: src,
         };
 
         // Upload the metadata to IPFS
         ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
             .map_ok(|resp| resp.cid)
-            .map_err(|e| Error::IpfsError(e))
+            .map_err(Error::Ipfs)
             .await
     }))
     .await?;
