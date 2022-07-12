@@ -1,13 +1,13 @@
 use ipfs_api::{IpfsClient, TryFromUri};
 use itertools::Itertools;
 use std::{
+    collections::HashMap,
     convert::TryFrom,
     env::{self, Args},
-    error::Error,
+    error::Error as StdError,
     fmt,
     fs::{File, OpenOptions},
     io::{stderr, Write},
-    path::PathBuf,
     process,
     process::{Child, Command as ProcCommand},
 };
@@ -47,7 +47,7 @@ struct ContextBuilder {
     contracts_dir: Option<String>,
     private_key: Option<String>,
 
-    files: Vec<(PathBuf, File)>,
+    files: HashMap<String, (Option<File>, Option<File>)>,
 }
 
 /// Command-specific configuration options.
@@ -63,7 +63,7 @@ pub struct NewContext {
     pub(crate) contracts_dir: String,
 
     // Handles to all of the specified modules
-    pub(crate) modules: Vec<(PathBuf, File)>,
+    pub(crate) modules: Vec<(File, File)>,
 
     // IPFS Node that might be running in the background if no proxy URL was
     // provided
@@ -82,14 +82,23 @@ impl TryFrom<ContextBuilder> for Command {
 
     /// Unwraps fields from a configuration, returning an error if a required
     /// field was not specified. Uses defaults for relevant fields.
-    fn try_from(v: ContextBuilder) -> Result<Self, Self::Error> {
+    fn try_from(mut v: ContextBuilder) -> Result<Self, Self::Error> {
         match v.cmd {
             Some(CommandBuilder::New) => Ok(Self::New(Box::new(NewContext {
                 private_key: v.private_key.ok_or(ParseError::MissingPrivateKey)?,
                 eth_uri: v.eth_uri.ok_or(ParseError::MissingRpcUrlETH)?,
                 contracts_dir: v.contracts_dir.ok_or(ParseError::MissingContractsSrc)?,
                 // Transform paths into file contents, bubbling IO errors
-                modules: v.files,
+                modules: v
+                    .files
+                    .drain()
+                    .filter_map(
+                        |(_, tup): (String, (Option<File>, Option<File>))| match tup {
+                            (Some(a), Some(b)) => Some((a, b)),
+                            _ => None,
+                        },
+                    )
+                    .collect(),
 
                 // Spawn an IPFS node if the user didn't specify a host
                 ipfs: IpfsClient::build_with_base_uri(
@@ -121,7 +130,7 @@ pub enum ParseError {
     MissingPrivateKey,
     MissingRpcUrlETH,
     MissingContractsSrc,
-    MiscError(Box<dyn Error>),
+    MiscError(Box<dyn StdError>),
 }
 
 impl fmt::Display for ParseError {
@@ -142,7 +151,7 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl Error for ParseError {}
+impl StdError for ParseError {}
 
 /// Gets the configuration of the command-line client from the command-line
 /// args.
@@ -170,11 +179,32 @@ impl TryFrom<Args> for Context {
 
                 // Open non-flag args that end with .wasm as modules
                 fname => {
-                    if fname.ends_with(".wasm") {
+                    // Get slot storing js loader and wasm module
+                    if let Some(stripped) = fname
+                        .strip_suffix(".wasm")
+                        .and_then(|s| s.strip_suffix(".js"))
+                        .and_then(|s| s.strip_prefix("_bg"))
+                    {
                         if let Ok(f) = OpenOptions::new().read(true).open(fname) {
-                            builder
-                                .files
-                                .push((PathBuf::from(fname).with_extension(".js"), f));
+                            // Set the slot to the default
+                            if !builder.files.contains_key(stripped) {
+                                builder.files.insert(stripped.to_owned(), (None, None));
+                            }
+
+                            // Sort encountered files by loader, or module type
+                            if fname.ends_with(".wasm") {
+                                builder
+                                    .files
+                                    .get_mut(stripped)
+                                    .ok_or(ParseError::MissingContractsSrc)?
+                                    .0 = Some(f);
+                            } else if fname.ends_with(".js") {
+                                builder
+                                    .files
+                                    .get_mut(stripped)
+                                    .ok_or(ParseError::MissingContractsSrc)?
+                                    .1 = Some(f);
+                            }
                         }
                     }
                 }
@@ -206,7 +236,7 @@ pub fn usage(args: &mut Args) {
     handle
         .write_all(
             format!(
-                "{} a.wasm b.wasm ... {USAGE}\n",
+                "{} a.wasm a.js b.wasm b.js ... {USAGE}\n",
                 args.next().unwrap_or_else(|| CLI_NAME.to_owned())
             )
             .as_bytes(),

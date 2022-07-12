@@ -1,6 +1,7 @@
 #![feature(iterator_try_collect)]
 #![feature(async_closure)]
 #![feature(let_chains)]
+#![feature(try_blocks)]
 
 mod cli;
 mod net;
@@ -9,19 +10,13 @@ mod net;
 extern crate convertable_errors;
 
 use net::contract;
-use std::env;
+use std::{env, process::Child};
+use net::error::Error;
 
-#[actix::main]
-async fn main() {
-    let mut args = env::args();
-
-    // Show usage if no args are provided
-    if args.len() == 1 {
-        cli::usage(&mut args);
-    }
-
+async fn run_cli(args: env::Args) -> (Option<Child>, Result<(), Error>) {
     // Will throw an error if not enough args were provided
-    let conf = cli::Context::try_from(args).unwrap();
+    let mut conf = cli::Context::try_from(args).unwrap();
+    let handle = conf.ipfs_handle.take();
 
     match conf.cmd {
         cli::Command::New(ctx) => {
@@ -36,8 +31,24 @@ async fn main() {
         }
     };
 
+    (handle, Ok(()))
+}
+
+#[actix::main]
+async fn main() -> Result<(), Error> {
+    let mut args = env::args();
+
+    // Show usage if no args are provided
+    if args.len() == 1 {
+        cli::usage(&mut args);
+    }
+
+    let (ctx, res) = run_cli(args).await;
+
     // Stop any IPFS processes running in the background
-    if let Some(mut ipfs_handle) = conf.ipfs_handle {
+    if let Some(mut ipfs_handle) = ctx {
         ipfs_handle.kill().expect("failed to stop IPFS process");
     }
+    
+    res
 }

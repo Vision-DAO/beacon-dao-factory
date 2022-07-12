@@ -3,9 +3,8 @@ use ipfs_api::{response::Cid, IpfsApi, IpfsClient};
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    fs::{File, OpenOptions},
+    fs::File,
     io::{Cursor, Read},
-    path::PathBuf,
 };
 
 use super::error::Error;
@@ -42,33 +41,32 @@ pub async fn deploy_metadata(
     ipfs: &IpfsClient,
     title: &str,
     description: &str,
-    modules: Vec<(PathBuf, File)>,
+    modules: Vec<(File, File)>,
 ) -> Result<Cid, Error> {
     // Load the JS and WASM specified by each module, and get the CID once
     // they are published to IPFS
-    let entries: Vec<Cid> = future::try_join_all(modules.into_iter().map(async move |(path, mut f)| {
-        // Modules have a WASM and JS payload. Load the WASM
-        let mut src = Vec::new();
-        f.read_to_end(&mut src)?;
+    let entries: Vec<Cid> = future::try_join_all(modules.into_iter().map(
+        async move |(mut load, mut module)| {
+            // Modules have a WASM and JS payload. Load the WASM
+            let mut src = Vec::new();
+            module.read_to_end(&mut src)?;
 
-        // And load the JavaScript
-        let mut loader = Vec::new();
-        OpenOptions::new()
-            .read(true)
-            .open(path.with_extension(".wasm"))?
-            .read_to_end(&mut loader)?;
+            // And load the JavaScript
+            let mut loader = Vec::new();
+            load.read_to_end(&mut loader)?;
 
-        let module = IdeaPayload {
-            loader: String::from_utf8(loader).map_err(|e| Error::Io(Box::new(e)))?,
-            module: src,
-        };
+            let module = IdeaPayload {
+                loader: String::from_utf8(loader).map_err(|e| Error::Io(Box::new(e)))?,
+                module: src,
+            };
 
-        // Upload the metadata to IPFS
-        ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
-            .map_ok(|resp| resp.cid)
-            .map_err(Error::Ipfs)
-            .await
-    }))
+            // Upload the metadata to IPFS
+            ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
+                .map_ok(|resp| resp.cid)
+                .map_err(Error::Ipfs)
+                .await
+        },
+    ))
     .await?;
 
     // See above explanation: DAG-JSON IPLD format requires that CID's are
