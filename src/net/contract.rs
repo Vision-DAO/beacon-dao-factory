@@ -1,12 +1,15 @@
 use futures::stream::{self, StreamExt};
+use secp256k1::SecretKey;
 use serde::Deserialize;
+use serde_json::Value;
 use std::{fs::OpenOptions, io::BufReader, str::FromStr};
 use web3::{
 	api::Web3,
-	contract::Contract,
+	contract::{Contract, Options},
 	error::Error as Web3Error,
+	signing::SecretKeyRef,
 	transports::Http,
-	types::{BlockId, BlockNumber, Bytes, Transaction, TransactionReceipt, H256, U256},
+	types::{Address, BlockId, BlockNumber, Bytes, Transaction, TransactionReceipt, H256, U256},
 };
 
 use super::{
@@ -28,20 +31,19 @@ const DEFAULT_SUPPLY: U256 = U256([2003764205206896640, 54210, 0, 0]);
 #[derive(Deserialize)]
 struct DeployableContract {
 	bytecode: String,
+	abi: Value,
 }
 
 /// Gets the bytecode of the Idea.sol contract in the specified contracts dir.
 /// Returns the raw source of the contract, and the bytecode.
 fn with_contract(contracts_dir: String) -> Result<(Vec<u8>, DeployableContract), Error> {
-	// Load contract source code
-	let src = Vec::new();
-
 	let f = OpenOptions::new()
 		.read(true)
 		.open(format!("{contracts_dir}/contracts/Idea.sol/Idea.json"))?;
-	let reader = BufReader::new(f);
+	let src_reader = BufReader::new(f);
 
-	let parsed = serde_json::from_reader(reader)?;
+	let parsed: DeployableContract = serde_json::from_reader(src_reader)?;
+	let src = serde_json::to_vec(&parsed.abi)?;
 
 	// Extract the bytecode from the compiled contract
 	Ok((src, parsed))
@@ -49,21 +51,28 @@ fn with_contract(contracts_dir: String) -> Result<(Vec<u8>, DeployableContract),
 
 /// Deploys an instance of the Beacon DAO using the details specified by the
 /// context.
-pub async fn deploy(ctx: Box<NewContext>) -> Result<String, Error> {
+pub async fn deploy(ctx: Box<NewContext>) -> Result<Address, Error> {
 	let NewContext {
 		private_key,
 		eth_uri,
+		eth_chain_id,
 		contracts_dir,
 		modules,
 		ipfs,
 		..
 	} = *ctx;
 
+	let secret_key =
+		SecretKey::from_str(private_key.as_str()).map_err(|e| Error::Serialization(Box::new(e)))?;
+	let ref_key = SecretKeyRef::new(&secret_key);
+
 	// Wrapper for the API using the specified URL
 	let web3 = Web3::new(Http::new(eth_uri.as_ref())?);
 
+	log::debug!("connected to web3 API: {eth_uri}");
+
 	// Load the source of the Idea.sol contract for deployment
-	let (src, DeployableContract { bytecode }) = with_contract(contracts_dir)?;
+	let (src, DeployableContract { abi: _, bytecode }) = with_contract(contracts_dir)?;
 
 	log::debug!("loaded contract bytecode: {:?}", bytecode);
 
@@ -75,25 +84,23 @@ pub async fn deploy(ctx: Box<NewContext>) -> Result<String, Error> {
 
 	// Deploy an instance of the contract form the specified address
 	Ok(Contract::deploy(web3.eth(), src.as_slice())?
-		.confirmations(0)
-		.execute(
+		.confirmations(2)
+		.options(Options::with(|opt| {
+			opt.gas = Some(4_000_000.into());
+		}))
+		.sign_with_key_and_execute(
 			bytecode.strip_prefix("0x").ok_or(Error::InvalidInput)?,
 			(
 				DEFAULT_NAME.to_owned(),
 				DEFAULT_SYMBOL.to_owned(),
-				DEFAULT_SUPPLY.to_string(),
+				DEFAULT_SUPPLY,
 				meta.cid_string,
 			),
-			web3.parity_accounts()
-				.new_account_from_secret(
-					&H256::from_str(private_key.as_ref()).map_err(|_| Web3Error::Internal)?,
-					"",
-				)
-				.await?,
+			ref_key,
+			Some(eth_chain_id),
 		)
 		.await?
-		.address()
-		.to_string())
+		.address())
 }
 
 /// Gets a list of the addresses of contracts deployed using the context
@@ -103,6 +110,7 @@ pub async fn list(
 		eth_uri,
 		contracts_dir,
 		private_key,
+		eth_chain_id: _,
 	}: ListContext,
 ) -> Result<Vec<String>, Error> {
 	// Wrapper for the API using the specified URL
@@ -110,7 +118,13 @@ pub async fn list(
 
 	// Compare the bytecode of contracts deployed to the address with contracts
 	// located in contracts_dir
-	let (_, DeployableContract { bytecode: bc_hex }) = with_contract(contracts_dir)?;
+	let (
+		_,
+		DeployableContract {
+			abi: _,
+			bytecode: bc_hex,
+		},
+	) = with_contract(contracts_dir)?;
 	let bytecode = Bytes(hex::decode(bc_hex)?);
 
 	// Fetch transactions

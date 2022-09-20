@@ -31,6 +31,8 @@ compatible node that daowiz will deploy the Beacon DAO to
 \t--ipfs-rpc-uri (optional) - a flag specifying the http url of an IPFS node \
 that daowiz will deploy Beacon DAO metadata to. Uses an in-process IPFS node by \
 default
+\t--eth-chain-id (required) - a flag specifying the Ethereum blockchain to \
+interact with
 \t--contracts-dir (required) - a flag specifying the path to a directory \
 containing the built Beacon DAO contracts that will be used for deploying the \
 Beacon DAO";
@@ -45,6 +47,7 @@ struct ContextBuilder {
 	cmd: Option<CommandBuilder>,
 
 	eth_uri: Option<String>,
+	eth_chain_id: Option<String>,
 	ipfs_uri: Option<String>,
 	contracts_dir: Option<String>,
 	private_key: Option<String>,
@@ -62,6 +65,7 @@ pub enum Command {
 pub struct NewContext {
 	pub(crate) private_key: String,
 	pub(crate) eth_uri: String,
+	pub(crate) eth_chain_id: u64,
 	pub(crate) contracts_dir: String,
 
 	// Handles to all of the specified modules
@@ -77,6 +81,7 @@ pub struct NewContext {
 pub struct ListContext {
 	pub(crate) private_key: String,
 	pub(crate) eth_uri: String,
+	pub(crate) eth_chain_id: u64,
 	pub(crate) contracts_dir: String,
 }
 
@@ -90,6 +95,11 @@ impl TryFrom<ContextBuilder> for Command {
 			Some(CommandBuilder::New) => Ok(Self::New(Box::new(NewContext {
 				private_key: v.private_key.ok_or(ParseError::MissingPrivateKey)?,
 				eth_uri: v.eth_uri.ok_or(ParseError::MissingRpcUrlETH)?,
+				eth_chain_id: v
+					.eth_chain_id
+					.ok_or(ParseError::MissingChainId)?
+					.parse()
+					.map_err(|_| ParseError::MissingChainId)?,
 				contracts_dir: v.contracts_dir.ok_or(ParseError::MissingContractsSrc)?,
 				// Transform paths into file contents, bubbling IO errors
 				modules: v
@@ -111,6 +121,7 @@ impl TryFrom<ContextBuilder> for Command {
 						let mut cmd = ProcCommand::new("ipfs")
 							.arg("daemon")
 							.stdout(Stdio::piped())
+							.stderr(Stdio::piped())
 							.spawn()
 							.map_err(|e| ParseError::MiscError(Box::new(e)))
 							.unwrap();
@@ -124,13 +135,12 @@ impl TryFrom<ContextBuilder> for Command {
 
 							if l.contains("API server listening") {
 								tx.send(cmd).unwrap();
-
 								break;
 							}
 						}
 
 						loop {
-							lines.next().unwrap();
+							lines.next();
 						}
 					});
 
@@ -150,6 +160,11 @@ impl TryFrom<ContextBuilder> for Command {
 			Some(CommandBuilder::List) => Ok(Self::List(ListContext {
 				private_key: v.private_key.ok_or(ParseError::MissingPrivateKey)?,
 				eth_uri: v.eth_uri.ok_or(ParseError::MissingRpcUrlETH)?,
+				eth_chain_id: v
+					.eth_chain_id
+					.ok_or(ParseError::MissingChainId)?
+					.parse()
+					.map_err(|_| ParseError::MissingChainId)?,
 				contracts_dir: v.contracts_dir.ok_or(ParseError::MissingContractsSrc)?,
 			})),
 			None => Err(ParseError::MissingCommand),
@@ -169,6 +184,7 @@ pub enum ParseError {
 	MissingPrivateKey,
 	MissingRpcUrlETH,
 	MissingContractsSrc,
+	MissingChainId,
 	MiscError(Box<dyn StdError>),
 }
 
@@ -186,6 +202,7 @@ impl fmt::Display for ParseError {
 				write!(fmt, "config error: command requires a --contracts-dir")
 			}
 			Self::MiscError(e) => write!(fmt, "error: {e}"),
+			Self::MissingChainId => write!(fmt, "config error: command requires a --eth-chain-id"),
 		}
 	}
 }
@@ -213,6 +230,7 @@ impl TryFrom<Args> for Context {
 		for (k, v) in v.into_iter().tuples() {
 			match k.as_str() {
 				"--eth-rpc-uri" => builder.eth_uri = Some(v),
+				"--eth-chain-id" => builder.eth_chain_id = Some(v),
 				"--ipfs-rpc-uri" => builder.ipfs_uri = Some(v),
 				"--contracts-dir" => builder.contracts_dir = Some(v),
 

@@ -21,10 +21,11 @@ async fn run_cli(args: env::Args) -> (Option<Child>, Result<(), Error>) {
 	match conf.cmd {
 		cli::Command::New(mut ctx) => {
 			handle = ctx.ipfs_handle.take();
+
 			let addr = contract::deploy(ctx).await.unwrap();
 
 			// No need to print extra output
-			println!("{addr}");
+			println!("0x{}", hex::encode(&addr.0));
 		}
 		cli::Command::List(ctx) => {
 			// Print out each deployed contract's address on a separate line
@@ -37,8 +38,8 @@ async fn run_cli(args: env::Args) -> (Option<Child>, Result<(), Error>) {
 
 #[actix::main]
 async fn main() -> Result<(), Error> {
-	env_logger::init();
 	dotenv().ok();
+	env_logger::init();
 
 	let mut args = env::args();
 
