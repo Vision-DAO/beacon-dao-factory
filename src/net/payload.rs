@@ -11,17 +11,17 @@ use super::error::Error;
 
 /// Represents an entry in an Idea's metadata specifying an executable target
 /// of a DAO.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct IdeaPayload {
-	/// JS that loads the module (only for kernel modules)
+	/// JS that loads the module (only for kernel modules) represented as a UnixFs file
 	loader: String,
 
-	/// WASM payload of the module itself
-	module: Vec<u8>,
+	/// WASM payload of the module itself represented as a UnixFs file
+	module: String,
 }
 
 /// Represents metadata attached to a DAO.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct IdeaMetadata<'a> {
 	/// Name of the DAO
 	title: &'a str,
@@ -45,8 +45,8 @@ pub async fn deploy_metadata(
 ) -> Result<Cid, Error> {
 	// Load the JS and WASM specified by each module, and get the CID once
 	// they are published to IPFS
-	let entries: Vec<Cid> = future::try_join_all(modules.into_iter().map(
-		async move |(mut load, mut module)| {
+	let entries: Vec<Cid> = future::try_join_all(modules.into_iter().enumerate().map(
+		async move |(i, (mut load, mut module))| {
 			// Modules have a WASM and JS payload. Load the WASM
 			let mut src = Vec::new();
 			module.read_to_end(&mut src)?;
@@ -55,14 +55,25 @@ pub async fn deploy_metadata(
 			let mut loader = Vec::new();
 			load.read_to_end(&mut loader)?;
 
+			let loader_cid = ipfs.add(Cursor::new(src)).await.map_err(Error::Ipfs)?.hash;
+			let module_cid = ipfs
+				.add(Cursor::new(loader))
+				.await
+				.map_err(Error::Ipfs)?
+				.hash;
+
 			let module = IdeaPayload {
-				loader: String::from_utf8(loader).map_err(|e| Error::Io(Box::new(e)))?,
-				module: src,
+				loader: loader_cid,
+				module: module_cid,
 			};
 
 			// Upload the metadata to IPFS
 			ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
-				.map_ok(|resp| resp.cid)
+				.map_ok(|resp| {
+					log::debug!("finished deploying module {}", i);
+
+					resp.cid
+				})
 				.map_err(Error::Ipfs)
 				.await
 		},

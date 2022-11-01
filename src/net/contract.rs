@@ -75,6 +75,7 @@ pub async fn deploy(ctx: Box<NewContext>) -> Result<Address, Error> {
 	let (src, DeployableContract { abi: _, bytecode }) = with_contract(contracts_dir)?;
 
 	log::debug!("loaded contract bytecode: {:?}", bytecode);
+	log::debug!("deploying metadata to IPFS");
 
 	// Deploy the metadata required for the contract, including specified
 	// payloads

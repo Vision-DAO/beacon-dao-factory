@@ -117,6 +117,8 @@ impl TryFrom<ContextBuilder> for Command {
 				ipfs_handle: if v.ipfs_uri.is_none() {
 					let (tx, rx) = mpsc::channel();
 
+					log::debug!("starting IPFS daemon");
+
 					thread::spawn(move || {
 						let mut cmd = ProcCommand::new("ipfs")
 							.arg("daemon")
@@ -235,15 +237,15 @@ impl TryFrom<Args> for Context {
 				"--contracts-dir" => builder.contracts_dir = Some(v),
 
 				// Open non-flag args that end with .wasm as modules
-				fname => {
-					// Get slot storing js loader and wasm module
-					if let Some(stripped) = fname
-						.strip_suffix(".wasm")
-						.and_then(|s| s.strip_suffix(".js"))
-						.and_then(|s| s.strip_prefix("_bg"))
-					{
-						println!("{}", stripped);
-						if let Ok(f) = OpenOptions::new().read(true).open(fname) {
+				_ => {
+					for fname in [k, v] {
+						// Get slot storing js loader and wasm module
+						let stripped = fname
+							.trim_end_matches(".wasm")
+							.trim_end_matches(".js")
+							.trim_end_matches("_bg");
+
+						if let Ok(f) = OpenOptions::new().read(true).open(&fname) {
 							// Set the slot to the default
 							if !builder.files.contains_key(stripped) {
 								builder.files.insert(stripped.to_owned(), (None, None));
@@ -255,13 +257,13 @@ impl TryFrom<Args> for Context {
 									.files
 									.get_mut(stripped)
 									.ok_or(ParseError::MissingContractsSrc)?
-									.0 = Some(f);
+									.1 = Some(f);
 							} else if fname.ends_with(".js") {
 								builder
 									.files
 									.get_mut(stripped)
 									.ok_or(ParseError::MissingContractsSrc)?
-									.1 = Some(f);
+									.0 = Some(f);
 							}
 						}
 					}
