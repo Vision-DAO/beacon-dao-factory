@@ -55,12 +55,12 @@ pub async fn deploy_metadata(
 			let mut loader = Vec::new();
 			load.read_to_end(&mut loader)?;
 
-			let loader_cid = ipfs.add(Cursor::new(src)).await.map_err(Error::Ipfs)?.hash;
-			let module_cid = ipfs
+			let loader_cid = ipfs
 				.add(Cursor::new(loader))
 				.await
 				.map_err(Error::Ipfs)?
 				.hash;
+			let module_cid = ipfs.add(Cursor::new(src)).await.map_err(Error::Ipfs)?.hash;
 
 			let loader_cid_rep = {
 				let mut m = HashMap::new();
