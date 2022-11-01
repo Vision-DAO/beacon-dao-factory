@@ -80,8 +80,6 @@ pub async fn deploy_metadata(
 				module: vec![mod_cid_rep],
 			};
 
-			println!("{:?}", module);
-
 			// Upload the metadata to IPFS
 			ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
 				.map_ok(|resp| {
