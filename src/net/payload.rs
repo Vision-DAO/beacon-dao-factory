@@ -14,10 +14,10 @@ use super::error::Error;
 #[derive(Serialize, Debug)]
 struct IdeaPayload {
 	/// JS that loads the module (only for kernel modules) represented as a UnixFs file
-	loader: String,
+	loader: Vec<HashMap<&'static str, String>>,
 
 	/// WASM payload of the module itself represented as a UnixFs file
-	module: String,
+	module: Vec<HashMap<&'static str, String>>,
 }
 
 /// Represents metadata attached to a DAO.
@@ -62,10 +62,25 @@ pub async fn deploy_metadata(
 				.map_err(Error::Ipfs)?
 				.hash;
 
-			let module = IdeaPayload {
-				loader: loader_cid,
-				module: module_cid,
+			let loader_cid_rep = {
+				let mut m = HashMap::new();
+				m.insert("/", loader_cid);
+
+				m
 			};
+			let mod_cid_rep = {
+				let mut m = HashMap::new();
+				m.insert("/", module_cid);
+
+				m
+			};
+
+			let module = IdeaPayload {
+				loader: vec![loader_cid_rep],
+				module: vec![mod_cid_rep],
+			};
+
+			println!("{:?}", module);
 
 			// Upload the metadata to IPFS
 			ipfs.dag_put(Cursor::new(serde_json::to_string(&module)?))
