@@ -88,6 +88,7 @@ pub async fn deploy(ctx: Box<NewContext>) -> Result<Address, Error> {
 		.confirmations(2)
 		.options(Options::with(|opt| {
 			opt.gas = Some(4_000_000.into());
+			opt.gas_price = Some(2_000_000_000.into());
 		}))
 		.sign_with_key_and_execute(
 			bytecode.strip_prefix("0x").ok_or(Error::InvalidInput)?,
