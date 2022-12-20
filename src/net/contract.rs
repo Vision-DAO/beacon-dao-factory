@@ -7,7 +7,7 @@ use web3::{
 	api::Web3,
 	contract::{Contract, Options},
 	error::Error as Web3Error,
-	signing::SecretKeyRef,
+	signing::{Key, SecretKeyRef},
 	transports::Http,
 	types::{Address, BlockId, BlockNumber, Bytes, Transaction, TransactionReceipt, H256, U256},
 };
@@ -80,6 +80,10 @@ pub async fn deploy(ctx: Box<NewContext>) -> Result<Address, Error> {
 	// Deploy the metadata required for the contract, including specified
 	// payloads
 	let meta = deploy_metadata(&ipfs, DEFAULT_NAME, DEFAULT_DESCRIPTION, modules).await?;
+	let nonce = web3
+		.eth()
+		.transaction_count(ref_key.address(), None)
+		.await?;
 
 	log::info!("deployed metadata at: {:?}", meta);
 
@@ -88,7 +92,7 @@ pub async fn deploy(ctx: Box<NewContext>) -> Result<Address, Error> {
 		.confirmations(2)
 		.options(Options::with(|opt| {
 			opt.gas = Some(4_000_000.into());
-			opt.gas_price = Some(2_000_000_000.into());
+			opt.nonce = Some(nonce.into());
 		}))
 		.sign_with_key_and_execute(
 			bytecode.strip_prefix("0x").ok_or(Error::InvalidInput)?,
